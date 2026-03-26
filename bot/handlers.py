@@ -449,10 +449,6 @@ async def _process_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text:
                 session.session_id = event.session_id
                 _save()
 
-                # Auto-return to discuss mode after work
-                if accept_edits:
-                    state.set_discuss_mode()
-                    _save()
 
             elif isinstance(event, ErrorResult):
                 final_text = f"❌ {event.error}"
@@ -483,9 +479,6 @@ async def _process_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text:
             # Send files
             for rel_path in file_paths:
                 await _send_file(update, state.project_path, rel_path)
-
-            if accept_edits:
-                await update.message.reply_text("💬 Mode returned: discuss")
 
     except Exception:
         logger.exception("Claude processing error")
