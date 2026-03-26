@@ -5,6 +5,7 @@ A Telegram bot that provides voice and text interface to [Claude Code](https://d
 ## Features
 
 - **Voice input** — send Telegram voice messages, transcribed via Groq Whisper API
+- **File & photo input** — send documents (code, text, configs) or photos/screenshots for Claude to analyze
 - **Multi-project** — switch between projects with inline keyboard
 - **Two modes**:
   - **Discuss** (default) — Claude has read-only access (Read, Glob, Grep, WebSearch)
@@ -75,12 +76,13 @@ cp .env.example .env
 
 ## How it works
 
-1. You send a voice or text message
+1. You send a voice message, text, document, or photo
 2. Voice messages are downloaded, converted to MP3, and transcribed via Groq Whisper
-3. The text is sent to Claude Code CLI as a subprocess with `--print --verbose --output-format stream-json`
-4. Tool usage events are streamed back as status updates
-5. The final response is split into Telegram-friendly chunks and sent back
-6. In work mode, Claude auto-returns to discuss mode after responding
+3. Documents: text files are included inline in the prompt; binary files and photos are saved and Claude reads them via the Read tool
+4. The prompt is sent to Claude Code CLI as a subprocess with `--print --verbose --output-format stream-json`
+5. Tool usage events are streamed back as status updates
+6. The final response is split into Telegram-friendly chunks and sent back
+7. In work mode, Claude auto-returns to discuss mode after responding
 
 ## License
 

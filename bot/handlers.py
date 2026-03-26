@@ -269,6 +269,126 @@ async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ Voice processing failed. Check bot logs.")
 
 
+async def handle_document(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle document messages — download and send to Claude with caption."""
+    doc = update.message.document
+    caption = update.message.caption or ""
+
+    await ctx.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
+    tmp_dir = os.path.join(os.path.dirname(__file__), "..", "data", "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    try:
+        file = await ctx.bot.get_file(doc.file_id)
+        filename = doc.file_name or f"file_{update.message.message_id}"
+        local_path = os.path.join(tmp_dir, filename)
+        await file.download_to_drive(local_path)
+
+        # Try to read as text for inline inclusion
+        text_content = _try_read_text(local_path)
+
+        if text_content is not None:
+            prompt = f"File: {filename}\n```\n{text_content}\n```"
+            if caption:
+                prompt += f"\n\n{caption}"
+            else:
+                prompt += "\n\nAnalyze this file."
+            # Clean up — content is inline
+            _safe_remove(local_path)
+        else:
+            # Binary file — save and give Claude the path
+            prompt = f"File saved at: {os.path.abspath(local_path)}\nFilename: {filename}"
+            if caption:
+                prompt += f"\n\n{caption}"
+            else:
+                prompt += "\n\nAnalyze this file."
+
+        await update.message.reply_text(f"📎 {filename}")
+        await _process_message(update, ctx, prompt)
+
+    except Exception:
+        logger.exception("Document processing error")
+        await update.message.reply_text("❌ Document processing failed. Check bot logs.")
+
+
+async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle photo messages — download and send to Claude for vision analysis."""
+    caption = update.message.caption or ""
+
+    await ctx.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
+    tmp_dir = os.path.join(os.path.dirname(__file__), "..", "data", "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    try:
+        # Get the largest photo
+        photo = update.message.photo[-1]
+        file = await ctx.bot.get_file(photo.file_id)
+
+        ext = os.path.splitext(file.file_path)[1] or ".jpg"
+        filename = f"photo_{update.message.message_id}{ext}"
+        local_path = os.path.join(tmp_dir, filename)
+        await file.download_to_drive(local_path)
+
+        prompt = f"Image saved at: {os.path.abspath(local_path)}\nUse the Read tool to view this image."
+        if caption:
+            prompt += f"\n\n{caption}"
+        else:
+            prompt += "\n\nDescribe and analyze this image."
+
+        await update.message.reply_text(f"📷 {filename}")
+        await _process_message(update, ctx, prompt)
+
+    except Exception:
+        logger.exception("Photo processing error")
+        await update.message.reply_text("❌ Photo processing failed. Check bot logs.")
+
+
+TEXT_EXTENSIONS = {
+    ".txt", ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".rb",
+    ".java", ".kt", ".c", ".cpp", ".h", ".hpp", ".cs", ".swift", ".sh", ".bash",
+    ".zsh", ".fish", ".yml", ".yaml", ".toml", ".ini", ".cfg", ".conf",
+    ".json", ".xml", ".html", ".css", ".scss", ".sql", ".r", ".lua",
+    ".pl", ".pm", ".php", ".ex", ".exs", ".erl", ".hs", ".ml", ".vim",
+    ".dockerfile", ".makefile", ".cmake", ".gradle", ".env", ".gitignore",
+    ".editorconfig", ".csv", ".tsv", ".log", ".diff", ".patch",
+}
+
+MAX_INLINE_SIZE = 100_000  # 100KB — larger files passed by path
+
+
+def _try_read_text(path: str) -> str | None:
+    """Try to read file as UTF-8 text. Return None if binary or too large."""
+    ext = os.path.splitext(path)[1].lower()
+    basename = os.path.basename(path).lower()
+
+    # Check by extension or known filenames
+    is_likely_text = (
+        ext in TEXT_EXTENSIONS
+        or basename in ("makefile", "dockerfile", "vagrantfile", "rakefile", "gemfile")
+    )
+
+    if not is_likely_text:
+        return None
+
+    try:
+        size = os.path.getsize(path)
+        if size > MAX_INLINE_SIZE:
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
+def _safe_remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 async def _process_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     """Send message to Claude and stream results."""
     state = get_state()

@@ -27,6 +27,8 @@ from .handlers import (
     cmd_start,
     cmd_status,
     cmd_stop,
+    handle_document,
+    handle_photo,
     handle_text,
     handle_voice,
     set_owner_id,
@@ -135,6 +137,14 @@ def main():
     app.add_handler(MessageHandler(
         owner_filter & filters.VOICE,
         handle_voice,
+    ))
+    app.add_handler(MessageHandler(
+        owner_filter & filters.PHOTO,
+        handle_photo,
+    ))
+    app.add_handler(MessageHandler(
+        owner_filter & filters.Document.ALL,
+        handle_document,
     ))
     app.add_handler(MessageHandler(
         owner_filter & filters.TEXT & ~filters.COMMAND,
