@@ -117,6 +117,7 @@ def main():
         .request(request)
         .get_updates_request(get_updates_request)
         .post_init(post_init)
+        .concurrent_updates(True)
         .build()
     )
 
