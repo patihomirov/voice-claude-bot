@@ -450,8 +450,10 @@ async def _process_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text:
                 _save()
 
                 # Auto-return to discuss mode after work
+                # Reset session to prevent resumed session from retaining edit permissions
                 if accept_edits:
                     state.set_discuss_mode()
+                    session.session_id = ""
                     _save()
 
             elif isinstance(event, ErrorResult):
