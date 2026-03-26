@@ -147,8 +147,12 @@ class ClaudeRunner:
                 "Before making changes, briefly explain what you plan to do."
                 + send_file_instruction
             ])
-        elif allowed_tools:
-            args.extend(["--allowedTools", ",".join(allowed_tools)])
+        else:
+            # Discuss mode: explicitly allow only safe tools AND disallow dangerous ones
+            # Both flags together ensure restrictions hold even when resuming a work-mode session
+            if allowed_tools:
+                args.extend(["--allowedTools", ",".join(allowed_tools)])
+            args.extend(["--disallowedTools", "Edit,Write,Bash,NotebookEdit"])
             args.extend(["--append-system-prompt",
                 "You are in DISCUSS mode via a Telegram bot. "
                 "You have read-only access (Read, Glob, Grep). "
