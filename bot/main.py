@@ -27,9 +27,9 @@ from .handlers import (
     cmd_start,
     cmd_status,
     cmd_stop,
-    cmd_voice,
     handle_text,
     handle_voice,
+    set_owner_id,
 )
 
 logging.basicConfig(
@@ -60,7 +60,6 @@ async def post_init(app: Application) -> None:
         BotCommand("discuss", "Discuss mode (read-only)"),
         BotCommand("stop", "Stop Claude"),
         BotCommand("status", "Current status"),
-        BotCommand("voice", "Voice response on/off"),
     ]
     await app.bot.set_my_commands(commands)
 
@@ -89,8 +88,13 @@ def main():
         logger.error("TELEGRAM_OWNER_CHAT_ID not set")
         sys.exit(1)
 
-    owner_id = int(owner_id_str)
+    try:
+        owner_id = int(owner_id_str)
+    except ValueError:
+        logger.error("TELEGRAM_OWNER_CHAT_ID must be an integer, got: %s", owner_id_str)
+        sys.exit(1)
     owner_filter = OwnerFilter(owner_id)
+    set_owner_id(owner_id)
 
     # Force IPv4 to avoid Telegram API timeouts via IPv6
     transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
@@ -123,9 +127,8 @@ def main():
     app.add_handler(CommandHandler("discuss", cmd_discuss, filters=owner_filter))
     app.add_handler(CommandHandler("stop", cmd_stop, filters=owner_filter))
     app.add_handler(CommandHandler("status", cmd_status, filters=owner_filter))
-    app.add_handler(CommandHandler("voice", cmd_voice, filters=owner_filter))
 
-    # Callbacks (inline buttons)
+    # Callbacks (inline buttons) — owner-only via check inside handler
     app.add_handler(CallbackQueryHandler(callback_handler))
 
     # Messages

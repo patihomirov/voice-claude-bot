@@ -7,10 +7,10 @@ import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from telegram.constants import ChatAction, ParseMode
+from telegram.constants import ChatAction
 
 from . import stt
-from .claude_runner import ClaudeRunner, ToolUseEvent, TextDelta, FinalResult, ErrorResult
+from .claude_runner import ClaudeRunner, ToolUseEvent, FinalResult, ErrorResult
 from .session import (
     PROJECTS, UserState, load_state, save_state,
 )
@@ -22,7 +22,13 @@ DISCUSS_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
 # Shared state
 _state: UserState | None = None
 _runner = ClaudeRunner()
-_claude_task: asyncio.Task | None = None
+_owner_id: int | None = None
+
+
+def set_owner_id(owner_id: int) -> None:
+    """Set the owner ID for callback query filtering."""
+    global _owner_id
+    _owner_id = owner_id
 
 
 def get_state() -> UserState:
@@ -94,11 +100,8 @@ async def cmd_discuss(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Stop running Claude process."""
-    global _claude_task
     if _runner.is_running:
         await _runner.stop()
-        if _claude_task and not _claude_task.done():
-            _claude_task.cancel()
         await update.message.reply_text("🛑 Stopped")
     else:
         await update.message.reply_text("Claude is not running")
@@ -114,28 +117,13 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     session = state.get_session()
     mode = "⚡ work" if state.is_work_mode else "💬 discuss"
     running = "▶️ yes" if _runner.is_running else "⏹ no"
-    voice = "🔊 on" if state.voice_response else "🔇 off"
 
     await update.message.reply_text(
         f"Project: {state.project_name}\n"
         f"📂 {state.project_path}\n"
         f"Mode: {mode}\n"
-        f"Claude: {running}\n"
-        f"Voice: {voice}"
+        f"Claude: {running}"
     )
-
-
-async def cmd_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Toggle voice response."""
-    state = get_state()
-    args = (update.message.text or "").split()
-    if len(args) > 1:
-        state.voice_response = args[1].lower() in ("on", "1", "yes")
-    else:
-        state.voice_response = not state.voice_response
-    _save()
-    status = "🔊 on" if state.voice_response else "🔇 off"
-    await update.message.reply_text(f"Voice: {status}")
 
 
 # ── Project selection ─────────────────────────────────────────────────────
@@ -145,7 +133,6 @@ async def _show_project_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
     keyboard = []
     for key, proj in PROJECTS.items():
         keyboard.append([InlineKeyboardButton(proj["name"], callback_data=f"project:{key}")])
-    keyboard.append([InlineKeyboardButton("📁 Custom path...", callback_data="project:custom")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Select project:", reply_markup=reply_markup)
 
@@ -153,16 +140,17 @@ async def _show_project_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE
 async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline keyboard callbacks."""
     query = update.callback_query
+
+    # Owner-only check for callbacks
+    if _owner_id and query.from_user.id != _owner_id:
+        await query.answer("Access denied", show_alert=True)
+        return
+
     await query.answer()
     data = query.data
 
     if data.startswith("project:"):
         project_key = data.split(":", 1)[1]
-        if project_key == "custom":
-            await query.edit_message_text(
-                "Send the full path to the project directory:"
-            )
-            return
 
         state = get_state()
         state.set_project(project_key)
@@ -256,7 +244,8 @@ async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await file.download_to_drive(local_path)
         mp3_path = await stt.convert_to_mp3(local_path)
 
-        text = await stt.transcribe(groq_key, mp3_path)
+        stt_lang = os.environ.get("STT_LANGUAGE", "ru")
+        text = await stt.transcribe(groq_key, mp3_path, language=stt_lang)
 
         # Cleanup
         for p in {local_path, mp3_path}:
@@ -275,15 +264,13 @@ async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # Process as text
         await _process_message(update, ctx, text)
 
-    except Exception as e:
+    except Exception:
         logger.exception("Voice processing error")
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text("❌ Voice processing failed. Check bot logs.")
 
 
 async def _process_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     """Send message to Claude and stream results."""
-    global _claude_task
-
     state = get_state()
 
     if not state.current_project:
@@ -380,9 +367,9 @@ async def _process_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text:
             if accept_edits:
                 await update.message.reply_text("💬 Mode returned: discuss")
 
-    except Exception as e:
+    except Exception:
         logger.exception("Claude processing error")
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text("❌ Claude processing failed. Check bot logs.")
 
 
 _FILE_TAG_RE = re.compile(r"<<SEND_FILE:(.+?)>>")

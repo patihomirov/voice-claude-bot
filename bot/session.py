@@ -41,7 +41,6 @@ class ProjectSession:
 class UserState:
     current_project: str | None = None
     sessions: dict[str, ProjectSession] = field(default_factory=dict)
-    voice_response: bool = False
 
     def get_session(self) -> ProjectSession | None:
         if not self.current_project:
@@ -101,7 +100,6 @@ def save_state(state: UserState) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "current_project": state.current_project,
-        "voice_response": state.voice_response,
         "sessions": {
             k: {"session_id": v.session_id, "mode": v.mode}
             for k, v in state.sessions.items()
@@ -117,7 +115,6 @@ def load_state() -> UserState:
         data = json.loads(STATE_FILE.read_text())
         state = UserState(
             current_project=data.get("current_project"),
-            voice_response=data.get("voice_response", False),
         )
         for k, v in data.get("sessions", {}).items():
             state.sessions[k] = ProjectSession(

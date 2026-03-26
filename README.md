@@ -72,7 +72,6 @@ cp .env.example .env
 | `/discuss` | Discuss mode (read-only) |
 | `/stop` | Stop running Claude process |
 | `/status` | Current status |
-| `/voice` | Toggle voice response on/off |
 
 ## How it works
 
